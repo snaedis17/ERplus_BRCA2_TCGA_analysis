@@ -1,18 +1,6 @@
 # ============================================================
 # Differential expression analysis (DESeq2)
 # ER+ BRCA2 mutated vs wild-type tumors
-#
-# Steps
-# 1. Load processed count matrix
-# 2. Restrict to ER+ tumors
-# 3. Build DESeq2 dataset
-# 4. Filter low expression genes
-# 5. Run DESeq2
-# 6. Map ENSEMBL IDs to gene symbols
-# 7. Save differential expression results
-#
-# Output
-# results/deseq2_brca2_deg.csv
 # ============================================================
 
 suppressPackageStartupMessages({
@@ -33,7 +21,6 @@ source("scripts/00_utils.R")
 counts <- readRDS("data_processed/counts_unique.rds")
 sample_annot <- readRDS("data_processed/sample_annot.rds")
 
-# Ensure matching order
 stopifnot(all(colnames(counts) == sample_annot$aliquot))
 
 # ------------------------------------------------------------
@@ -58,10 +45,10 @@ dds <- DESeqDataSetFromMatrix(
 )
 
 # ------------------------------------------------------------
-# Low expression filtering
+# Low count filtering
 # ------------------------------------------------------------
 
-dds <- dds[rowSums(counts(dds)) > 20, ]
+dds <- dds[rowSums(counts(dds)) > 10, ]
 
 cat("Genes after filtering:", nrow(dds), "\n")
 
@@ -81,13 +68,25 @@ res_df <- as.data.frame(res)
 res_df$ENSEMBL <- rownames(res_df)
 
 # ------------------------------------------------------------
-# Map ENSEMBL → gene symbols
+# Map gene symbols
 # ------------------------------------------------------------
 
 res_df$SYMBOL <- mapIds(
   EnsDb.Hsapiens.v86,
   keys = res_df$ENSEMBL,
   column = "SYMBOL",
+  keytype = "GENEID",
+  multiVals = "first"
+)
+
+# ------------------------------------------------------------
+# Add gene biotype
+# ------------------------------------------------------------
+
+res_df$biotype <- mapIds(
+  EnsDb.Hsapiens.v86,
+  keys = res_df$ENSEMBL,
+  column = "GENEBIOTYPE",
   keytype = "GENEID",
   multiVals = "first"
 )
@@ -101,19 +100,25 @@ res_df <- res_df %>%
   arrange(padj)
 
 # ------------------------------------------------------------
+# Protein-coding only
+# ------------------------------------------------------------
+
+res_pc <- res_df %>%
+  filter(biotype == "protein_coding")
+
+# ------------------------------------------------------------
 # Save results
 # ------------------------------------------------------------
 
 dir.create("results", showWarnings = FALSE)
 
-write_csv(
-  res_df,
-  "results/deseq2_brca2_mut_vs_wt_ERpos.csv"
-)
+write_csv(res_df,
+          "results/deseq2_all_genes_ERpos_BRCA2.csv")
 
-saveRDS(
-  res_df,
-  "results/deseq2_brca2_mut_vs_wt_ERpos.rds"
-)
+write_csv(res_pc,
+          "results/deseq2_protein_coding_ERpos_BRCA2.csv")
 
-cat("Results saved to results/ directory\n")
+saveRDS(res_df,
+        "results/deseq2_all_genes_ERpos_BRCA2.rds")
+
+cat("DESeq2 analysis complete\n")
