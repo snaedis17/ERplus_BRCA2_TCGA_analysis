@@ -17,7 +17,9 @@ se <- readRDS("data_raw/tcga_brca_se.rds")
 # annaðhvort .csv eða .xlsx sem þú lest inn fyrirfram
 # Hér geri ég ráð fyrir csv í data_raw/
 # breyttu þessu ef þú ert með xlsx
-maxwell_path <- "data_raw/Maxwell_BRCA2uppl.csv"
+library(readxl)
+
+Maxwell_BRCA2uppl <- read_excel("data/Maxwell_BRCA2uppl.xlsx")
 
 if (!file.exists(maxwell_path)) {
   stop("Maxwell file not found: ", maxwell_path)
