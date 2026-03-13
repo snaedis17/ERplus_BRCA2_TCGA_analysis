@@ -50,7 +50,7 @@ dds <- DESeqDataSetFromMatrix(
 
 dds <- dds[rowSums(counts(dds)) > 10, ]
 
-cat("Genes after filtering:", nrow(dds), "\n")
+cat("Genes after count filtering:", nrow(dds), "\n")
 
 # ------------------------------------------------------------
 # Run DESeq2
@@ -67,6 +67,9 @@ res <- results(dds)
 res_df <- as.data.frame(res)
 res_df$ENSEMBL <- rownames(res_df)
 
+# remove ENSG version numbers (important for annotation)
+res_df$ENSEMBL <- sub("\\..*$", "", res_df$ENSEMBL)
+
 # ------------------------------------------------------------
 # Map gene symbols
 # ------------------------------------------------------------
@@ -80,7 +83,7 @@ res_df$SYMBOL <- mapIds(
 )
 
 # ------------------------------------------------------------
-# Add gene biotype
+# Map gene biotype
 # ------------------------------------------------------------
 
 res_df$biotype <- mapIds(
@@ -99,27 +102,41 @@ res_df <- res_df %>%
   filter(!is.na(padj)) %>%
   arrange(padj)
 
+cat("Genes with valid statistics:", nrow(res_df), "\n")
+
 # ------------------------------------------------------------
-# Protein-coding only
+# Protein-coding subset
 # ------------------------------------------------------------
 
 res_pc <- res_df %>%
   filter(biotype == "protein_coding")
 
-cat("Protein-coding genes:", sum(res_df$biotype == "protein_coding"), "\n")
+cat("Protein-coding genes:", nrow(res_pc), "\n")
+
 # ------------------------------------------------------------
 # Save results
 # ------------------------------------------------------------
 
 dir.create("results", showWarnings = FALSE)
 
-write_csv(res_df,
-          "results/deseq2_all_genes_ERpos_BRCA2.csv")
+write_csv(
+  res_df,
+  "results/deseq2_all_genes_ERpos_BRCA2.csv"
+)
 
-write_csv(res_pc,
-          "results/deseq2_protein_coding_ERpos_BRCA2.csv")
+write_csv(
+  res_pc,
+  "results/deseq2_protein_coding_ERpos_BRCA2.csv"
+)
 
-saveRDS(res_df,
-        "results/deseq2_all_genes_ERpos_BRCA2.rds")
+saveRDS(
+  res_df,
+  "results/deseq2_all_genes_ERpos_BRCA2.rds"
+)
+
+saveRDS(
+  res_pc,
+  "results/deseq2_protein_coding_ERpos_BRCA2.rds"
+)
 
 cat("DESeq2 analysis complete\n")
