@@ -1,3 +1,27 @@
+# ============================================================
+# Clinical annotation and filtering
+# TCGA BRCA ER+ BRCA2 analysis
+#
+# Steps
+# 1. Load TCGA SummarizedExperiment
+# 2. Extract clinical metadata
+# 3. Restrict to female samples
+# 4. Determine ER status
+#    - clinical ER status if available
+#    - PAM50 subtype fallback
+# 5. Annotate BRCA2 mutation carriers using Maxwell file
+# 6. Build patient-level clinical table
+# 7. Build sample annotation
+# 8. Identify duplicate aliquots
+#
+# Outputs
+# data_processed/counts_unique.rds
+# data_processed/sample_annot.rds
+# data_processed/clin2_unique.rds
+# data_processed/dup_info.rds
+# ============================================================
+
+
 suppressPackageStartupMessages({
   library(TCGAbiolinks)
   library(SummarizedExperiment)
