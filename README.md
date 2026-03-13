@@ -34,6 +34,12 @@ TCGAbiolinks
 
 ---
 
+## Additional metadata
+
+BRCA2 mutation carriers were defined using curated mutation annotations.
+
+The file `data/brca2_carriers_tcga.csv` contains the list of BRCA2 mutation carriers used in this analysis.
+
 ## Author
 
 Snædís Ragnarsdóttir  
