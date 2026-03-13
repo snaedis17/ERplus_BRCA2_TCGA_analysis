@@ -1,7 +1,18 @@
 # ============================================================
 # Differential expression analysis (DESeq2)
 # ER+ BRCA2 mutated vs wild-type tumors
-# TCGA-BRCA RNA-seq
+#
+# Steps
+# 1. Load processed count matrix
+# 2. Restrict to ER+ tumors
+# 3. Build DESeq2 dataset
+# 4. Filter low expression genes
+# 5. Run DESeq2
+# 6. Map ENSEMBL IDs to gene symbols
+# 7. Save differential expression results
+#
+# Output
+# results/deseq2_brca2_deg.csv
 # ============================================================
 
 suppressPackageStartupMessages({
