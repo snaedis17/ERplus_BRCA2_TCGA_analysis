@@ -1,31 +1,108 @@
-library(DESeq2)
-library(dplyr)
+# ============================================================
+# Differential expression analysis (DESeq2)
+# ER+ BRCA2 mutated vs wild-type tumors
+# TCGA-BRCA RNA-seq
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(DESeq2)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(AnnotationDbi)
+  library(EnsDb.Hsapiens.v86)
+})
 
 source("scripts/00_utils.R")
 
-# load processed data
+# ------------------------------------------------------------
+# Load processed data
+# ------------------------------------------------------------
+
 counts <- readRDS("data_processed/counts_unique.rds")
 sample_annot <- readRDS("data_processed/sample_annot.rds")
 
-# build DESeq2 object
+# Ensure matching order
+stopifnot(all(colnames(counts) == sample_annot$aliquot))
+
+# ------------------------------------------------------------
+# Restrict to ER+ tumors
+# ------------------------------------------------------------
+
+sample_annot_er <- sample_annot %>%
+  filter(ER == "ER+")
+
+counts_er <- counts[, sample_annot_er$aliquot]
+
+cat("ER+ samples:", ncol(counts_er), "\n")
+
+# ------------------------------------------------------------
+# Build DESeq2 dataset
+# ------------------------------------------------------------
+
 dds <- DESeqDataSetFromMatrix(
-  countData = counts,
-  colData = sample_annot,
+  countData = counts_er,
+  colData = sample_annot_er,
   design = ~ BRCA2_Status
 )
 
-# filter low expression
+# ------------------------------------------------------------
+# Low expression filtering
+# ------------------------------------------------------------
+
 dds <- dds[rowSums(counts(dds)) > 20, ]
 
-# run DESeq2
+cat("Genes after filtering:", nrow(dds), "\n")
+
+# ------------------------------------------------------------
+# Run DESeq2
+# ------------------------------------------------------------
+
 dds <- DESeq(dds)
 
 res <- results(dds)
 
-# clean results
-res_clean <- clean_results(res)
+# ------------------------------------------------------------
+# Convert to dataframe
+# ------------------------------------------------------------
 
-# save
-write.csv(res_clean,
-          "results/deseq2_brca2_deg.csv",
-          row.names = FALSE)
+res_df <- as.data.frame(res)
+res_df$ENSEMBL <- rownames(res_df)
+
+# ------------------------------------------------------------
+# Map ENSEMBL → gene symbols
+# ------------------------------------------------------------
+
+res_df$SYMBOL <- mapIds(
+  EnsDb.Hsapiens.v86,
+  keys = res_df$ENSEMBL,
+  column = "SYMBOL",
+  keytype = "GENEID",
+  multiVals = "first"
+)
+
+# ------------------------------------------------------------
+# Clean results
+# ------------------------------------------------------------
+
+res_df <- res_df %>%
+  filter(!is.na(padj)) %>%
+  arrange(padj)
+
+# ------------------------------------------------------------
+# Save results
+# ------------------------------------------------------------
+
+dir.create("results", showWarnings = FALSE)
+
+write_csv(
+  res_df,
+  "results/deseq2_brca2_mut_vs_wt_ERpos.csv"
+)
+
+saveRDS(
+  res_df,
+  "results/deseq2_brca2_mut_vs_wt_ERpos.rds"
+)
+
+cat("Results saved to results/ directory\n")
