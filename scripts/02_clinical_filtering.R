@@ -43,11 +43,6 @@ library(readxl)
 
 Maxwell_BRCA2uppl <- read_excel("data/Maxwell_BRCA2uppl.xlsx")
 
-if (!file.exists(maxwell_path)) {
-  stop("Maxwell file not found: ", maxwell_path)
-}
-
-Maxwell_BRCA2uppl <- readr::read_csv(maxwell_path, show_col_types = FALSE)
 
 # ------------------------------------------------------------
 # Counts matrix
