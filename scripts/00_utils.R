@@ -1,3 +1,15 @@
+# ============================================================
+# Utility functions
+# TCGA BRCA2 ER+ analysis
+#
+# Contains helper functions used across scripts
+#
+# Functions:
+# - norm12: convert TCGA barcode to patient ID
+# - norm16: convert TCGA barcode to aliquot ID
+# - clean_results: format DESeq2 results
+# ============================================================
+
 library(dplyr)
 
 # Normalize TCGA IDs
