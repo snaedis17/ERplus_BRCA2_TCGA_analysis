@@ -106,6 +106,7 @@ res_df <- res_df %>%
 res_pc <- res_df %>%
   filter(biotype == "protein_coding")
 
+cat("Protein-coding genes:", sum(res_df$biotype == "protein_coding"), "\n")
 # ------------------------------------------------------------
 # Save results
 # ------------------------------------------------------------
