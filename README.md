@@ -38,8 +38,43 @@ TCGAbiolinks
 
 BRCA2 mutation carriers were defined using curated mutation annotations.
 
-The file `data/brca2_carriers_tcga.csv` contains the list of BRCA2 mutation carriers used in this analysis.
+The files `yost_table_12.xlsx` and `maxwell_germline.xlsx` contain the list of BRCA2 mutation carriers used in this analysis.
 
+---
+
+## Results
+
+### Differential expression: BRCA2-mutated vs WT
+
+Volcano plot showing significantly dysregulated genes in BRCA2-mutated ER+ tumors.
+
+![Volcano](results/brca2/BRCA2_volcano_cleanWT.png)
+
+Key observation: A subset of genes shows strong differential expression, rather than a global shift.
+
+---
+
+### PCA – global transcriptomic structure
+
+Samples do not clearly separate by BRCA2 status or age at a global level.
+
+![PCA](results/age_interaction/plots/PCA_age_brca2.png)
+
+---
+
+### Interaction: Age × BRCA2
+
+A subset of genes shows expression patterns that depend on both age and BRCA2 status.
+
+![Interaction genes](results/age_interaction/plots/boxplot_interaction_genes.png)
+
+---
+
+### BRCA2 expression (control check)
+
+BRCA2 expression is lower in mutated tumors, confirming expected biology.
+
+![BRCA2 expression](results/age_interaction/plots/BRCA2_expression.png)
 ## Author
 
 Snædís Ragnarsdóttir  
