@@ -1,142 +1,268 @@
-# ============================================================
-# Differential expression analysis (DESeq2)
-# ER+ BRCA2 mutated vs wild-type tumors
-# ============================================================
+rm(list = ls())
 
 suppressPackageStartupMessages({
   library(DESeq2)
   library(dplyr)
-  library(tibble)
-  library(readr)
-  library(AnnotationDbi)
   library(EnsDb.Hsapiens.v86)
+  library(AnnotationDbi)
+  library(edgeR)
 })
 
-source("scripts/00_utils.R")
+# shorthand
+filter  <- dplyr::filter
+select  <- dplyr::select
+arrange <- dplyr::arrange
+
+# ============================================================
+# GOAL
+# ============================================================
+# Compare gene expression between:
+#   BRCA2-mutated vs WT tumors (ER+ only)
+#
+# Using:
+#   - DESeq2 for differential expression
+#   - Shrinkage for stable effect sizes
+#   - VST for visualization
+# ============================================================
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+# counts = raw RNA-seq counts (NOT normalized)
+# annot  = sample metadata (patients, BRCA2 status, etc.)
+
+counts_one <- readRDS("data/counts_ERpos_clean_final.rds")
+annot_patient <- readRDS("data/annot_ERpos_clean_final.rds")
+
 
 # ------------------------------------------------------------
-# Load processed data
+# Make sure samples match between counts and metadata
+# (very important sanity check)
 # ------------------------------------------------------------
+stopifnot(identical(colnames(counts_one), annot_patient$patient12))
 
-counts <- readRDS("data_processed/counts_unique.rds")
-sample_annot <- readRDS("data_processed/sample_annot.rds")
 
-stopifnot(all(colnames(counts) == sample_annot$aliquot))
+# ============================================================
+# BUILD DESIGN MATRIX
+# ============================================================
+# grp = comparison variable (WT vs Mut)
 
-# ------------------------------------------------------------
-# Restrict to ER+ tumors
-# ------------------------------------------------------------
+coldata <- annot_patient %>%
+  transmute(
+    patient12,
+    grp = factor(BRCA2_Status, levels = c("WT", "Mut"))
+  ) %>%
+  as.data.frame()
 
-sample_annot_er <- sample_annot %>%
-  filter(ER == "ER+")
+rownames(coldata) <- coldata$patient12
+coldata$patient12 <- NULL
 
-counts_er <- counts[, sample_annot_er$aliquot]
+stopifnot(identical(rownames(coldata), colnames(counts_one)))
 
-cat("ER+ samples:", ncol(counts_er), "\n")
 
-# ------------------------------------------------------------
-# Build DESeq2 dataset
-# ------------------------------------------------------------
+# ============================================================
+# FILTER LOW-EXPRESSION GENES
+# ============================================================
+# Remove genes that are too lowly expressed to be reliable
+# (reduces noise, improves statistical power)
 
-dds <- DESeqDataSetFromMatrix(
-  countData = counts_er,
-  colData = sample_annot_er,
-  design = ~ BRCA2_Status
+dge <- DGEList(counts = counts_one)
+
+keep <- filterByExpr(
+  y = dge,
+  group = coldata$grp
 )
 
-# ------------------------------------------------------------
-# Low count filtering
-# ------------------------------------------------------------
+counts_one <- counts_one[keep, , drop = FALSE]
 
-dds <- dds[rowSums(counts(dds)) > 10, ]
+# Now we only keep genes with meaningful expression
 
-cat("Genes after count filtering:", nrow(dds), "\n")
 
-# ------------------------------------------------------------
-# Run DESeq2
-# ------------------------------------------------------------
+# ============================================================
+# RUN DESeq2
+# ============================================================
+# This models count data using negative binomial distribution
+
+dds <- DESeqDataSetFromMatrix(
+  countData = counts_one,
+  colData   = coldata,
+  design    = ~ grp
+)
 
 dds <- DESeq(dds)
 
-res <- results(dds)
+# coefficients (important for shrink later)
+resultsNames(dds)
 
-# ------------------------------------------------------------
-# Convert to dataframe
-# ------------------------------------------------------------
 
-res_df <- as.data.frame(res)
-res_df$ENSEMBL <- rownames(res_df)
+# ============================================================
+# EXTRACT RESULTS
+# ============================================================
+# res_raw = original DESeq2 results
+#   → contains log2FC (can be noisy for low counts)
 
-# remove ENSG version numbers (important for annotation)
-res_df$ENSEMBL <- sub("\\..*$", "", res_df$ENSEMBL)
+res_raw <- results(dds, name = "grp_Mut_vs_WT")
 
-# ------------------------------------------------------------
-# Map gene symbols
-# ------------------------------------------------------------
 
-res_df$SYMBOL <- mapIds(
-  EnsDb.Hsapiens.v86,
-  keys = res_df$ENSEMBL,
-  column = "SYMBOL",
-  keytype = "GENEID",
-  multiVals = "first"
+# ============================================================
+# SHRINKAGE (IMPORTANT)
+# ============================================================
+# This stabilizes log2 fold changes
+# → prevents extreme values for low-count genes
+
+res_shrunk <- lfcShrink(
+  dds,
+  coef = "grp_Mut_vs_WT",
+  type = "apeglm"
 )
 
-# ------------------------------------------------------------
-# Map gene biotype
-# ------------------------------------------------------------
+# KEY IDEA:
+# raw = statistical test
+# shrunk = better effect size for interpretation
 
-res_df$biotype <- mapIds(
-  EnsDb.Hsapiens.v86,
-  keys = res_df$ENSEMBL,
-  column = "GENEBIOTYPE",
-  keytype = "GENEID",
-  multiVals = "first"
-)
 
-# ------------------------------------------------------------
-# Clean results
-# ------------------------------------------------------------
+# ============================================================
+# ADD GENE SYMBOLS
+# ============================================================
 
-res_df <- res_df %>%
-  filter(!is.na(padj)) %>%
+add_symbols <- function(res_df) {
+  res_df$ENSEMBL <- gsub("\\..*", "", rownames(res_df))
+  res_df$SYMBOL <- mapIds(
+    EnsDb.Hsapiens.v86,
+    keys = res_df$ENSEMBL,
+    keytype = "GENEID",
+    column = "SYMBOL",
+    multiVals = "first"
+  )
+  res_df %>% relocate(SYMBOL, ENSEMBL)
+}
+
+res_raw_df    <- add_symbols(as.data.frame(res_raw))
+res_shrunk_df <- add_symbols(as.data.frame(res_shrunk))
+
+
+# ============================================================
+# COMBINE RAW + SHRUNK
+# ============================================================
+# This is what Adrian does manually
+# → keep BOTH versions
+
+full_results <- data.frame(
+  ENSEMBL = gsub("\\..*", "", rownames(res_raw)),
+  SYMBOL  = res_raw_df$SYMBOL,
+  
+  baseMean = res_raw$baseMean,
+  
+  log2FC_raw   = res_raw$log2FoldChange,
+  lfcSE        = res_raw$lfcSE,
+  stat         = res_raw$stat,
+  pvalue       = res_raw$pvalue,
+  padj         = res_raw$padj,
+  
+  log2FC_shrunk = res_shrunk$log2FoldChange,
+  
+  stringsAsFactors = FALSE
+) %>%
+  filter(!is.na(SYMBOL))
+
+
+# ============================================================
+# DEFINE SIGNIFICANT GENES
+# ============================================================
+# Use:
+#   - statistical significance (padj)
+#   - biological effect size (shrunk LFC)
+
+sig_results <- full_results %>%
+  filter(
+    !is.na(padj),
+    padj < 0.05,
+    abs(log2FC_shrunk) >= 1
+  ) %>%
   arrange(padj)
 
-cat("Genes with valid statistics:", nrow(res_df), "\n")
+
+# ============================================================
+# CLEAN VOLCANO (publication style)
+# ============================================================
+
+volcano_df <- full_results %>%
+  filter(!is.na(padj), !is.na(log2FC_shrunk)) %>%
+  mutate(
+    negLogP = -log10(padj),
+    category = case_when(
+      padj < 0.05 & log2FC_shrunk > 1  ~ "Up",
+      padj < 0.05 & log2FC_shrunk < -1 ~ "Down",
+      TRUE ~ "NS"
+    )
+  )
+
+p_volcano <- ggplot(volcano_df, aes(x = log2FC_shrunk, y = negLogP)) +
+  
+  # points
+  geom_point(aes(color = category), alpha = 0.7, size = 1.8) +
+  
+  # colors (clean)
+  scale_color_manual(values = c(
+    "Up" = "#D55E00",     # red/orange
+    "Down" = "#0072B2",   # blue
+    "NS" = "grey70"
+  )) +
+  
+  # threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
+  
+  # theme
+  theme_classic(base_size = 14) +
+  
+  labs(
+    title = "BRCA2-mutated vs WT ER+ tumors",
+    x = "log2 fold change (shrunk)",
+    y = "-log10 adjusted p-value",
+    color = ""
+  )
 
 # ------------------------------------------------------------
-# Protein-coding subset
+# LABEL TOP GENES
 # ------------------------------------------------------------
+library(ggrepel)
 
-res_pc <- res_df %>%
-  filter(biotype == "protein_coding")
+top_genes <- volcano_df %>%
+  filter(category != "NS") %>%
+  arrange(padj) %>%
+  slice_head(n = 15)
 
-cat("Protein-coding genes:", nrow(res_pc), "\n")
+p_volcano <- p_volcano +
+  ggrepel::geom_text_repel(
+    data = top_genes,
+    aes(label = SYMBOL),
+    size = 3,
+    max.overlaps = 20
+  )
 
-# ------------------------------------------------------------
-# Save results
-# ------------------------------------------------------------
+print(p_volcano)
+# ============================================================
+# VST TRANSFORMATION (VERY IMPORTANT)
+# ============================================================
+# This is used for:
+#   - plots
+#   - PCA
+#   - ssGSEA
+#
+# It transforms counts → normalized expression values
+# similar idea to log2(TPM + 1)
 
-dir.create("results", showWarnings = FALSE)
+vst_mat <- assay(vst(dds, blind = TRUE))
 
-write_csv(
-  res_df,
-  "results/deseq2_all_genes_ERpos_BRCA2.csv"
-)
+saveRDS(vst_mat, "data/vst_expression_ERpos_cleanWT.rds")
 
-write_csv(
-  res_pc,
-  "results/deseq2_protein_coding_ERpos_BRCA2.csv"
-)
 
-saveRDS(
-  res_df,
-  "results/deseq2_all_genes_ERpos_BRCA2.rds"
-)
+# ============================================================
+# QUALITY CHECK: raw vs shrunk
+# ============================================================
+# If shrink worked → points move toward 0
 
-saveRDS(
-  res_pc,
-  "results/deseq2_protein_coding_ERpos_BRCA2.rds"
-)
-
-cat("DESeq2 analysis complete\n")
+plot(res_raw$log2FoldChange, res_shrunk$log2FoldChange)
+abline(0,1,col="red")
