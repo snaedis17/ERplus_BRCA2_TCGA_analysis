@@ -77,5 +77,8 @@ BRCA2 expression is lower in mutated tumors, confirming expected biology.
 ![BRCA2 expression](results/age_interaction/plots/BRCA2_expression.png)
 ## Author
 
+
+
+![test](results/age_interaction/plots/PCA_age_brca2.png) 
 Snædís Ragnarsdóttir  
 PhD student – University of Iceland
