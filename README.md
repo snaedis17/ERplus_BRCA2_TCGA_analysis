@@ -47,7 +47,7 @@ The files `yost_table_12.xlsx` and `maxwell_germline.xlsx` contain the list of B
 
 Volcano plot showing differential gene expression between BRCA2-mutated and wild-type ER-positive breast tumors.
 
-![Volcano](results/brca2/plots/BRCA2_volcano_cleanWT.png)
+![Volcano](results/plots/BRCA2_volcano_cleanWT.png)
 
 **Key observation:**  
 Differential expression is driven by a relatively small subset of genes with strong effect sizes, rather than a global shift in the transcriptome. This is consistent with a structured but subtle transcriptional phenotype in BRCA2-mutated tumors.
