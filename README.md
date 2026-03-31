@@ -63,7 +63,7 @@ These findings align with a model where BRCA2-mutated ER+ tumors do not form a c
 
 Samples do not clearly separate by BRCA2 status or age at a global level.
 
-![PCA](results/age_interaction/plots/PCA_age_brca2.png)
+![PCA]( results/plots/image.png)
 
 ---
 
