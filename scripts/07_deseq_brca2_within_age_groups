@@ -2,8 +2,6 @@
 # deseq_brca2_within_age_groups.R 
 # ============================================================
 
-rm(list = ls())
-
 suppressPackageStartupMessages({
   library(DESeq2)
   library(dplyr)
@@ -11,10 +9,10 @@ suppressPackageStartupMessages({
   library(EnsDb.Hsapiens.v86)
   library(ggplot2)
   library(ggrepel)
-  library(dplyr)
   library(edgeR)
 })
 
+# shorthand
 filter  <- dplyr::filter
 select  <- dplyr::select
 arrange <- dplyr::arrange
@@ -52,14 +50,9 @@ counts_one <- counts_one[, annot_patient$patient12, drop = FALSE]
 cat("\nGroup sizes:\n")
 print(table(annot_patient$grp4))
 
-#  WT_Old  WT_Young   Mut_Old Mut_Young 
-#663        41        12         5 
-
 # ------------------------------------------------------------
-# Filtering
+# Filtering (edgeR recommended)
 # ------------------------------------------------------------
-
-
 dge <- DGEList(counts = counts_one)
 
 keep <- filterByExpr(
@@ -70,7 +63,7 @@ keep <- filterByExpr(
 counts_one <- counts_one[keep, , drop = FALSE]
 
 cat("Genes kept:", nrow(counts_one), "\n")
-#Genes kept: 17863 
+
 # ------------------------------------------------------------
 # DESeq2
 # ------------------------------------------------------------
@@ -81,12 +74,12 @@ dds <- DESeqDataSetFromMatrix(
 )
 
 dds <- DESeq(dds)
+
 saveRDS(dds, file.path(results_dir, "dds_grp4.rds"))
 
 cat("\nModel coefficients:\n")
-coef_names <- resultsNames(dds)
-print(coef_names)
-#"grp4_WT_Young_vs_WT_Old"  "grp4_Mut_Old_vs_WT_Old"   "grp4_Mut_Young_vs_WT_Old"
+print(resultsNames(dds))
+
 # ------------------------------------------------------------
 # RAW RESULTS
 # ------------------------------------------------------------
@@ -98,34 +91,31 @@ res_list_raw <- list(
 )
 
 # ------------------------------------------------------------
-# SHRUNK RESULTS (ROBUST HANDLING)
+# SHRINKAGE
 # ------------------------------------------------------------
+# apeglm → for direct model coefficients
+# ashr   → for contrasts not directly in model
 
 res_list_shrunk <- list(
   
-  # This comparison is made by comparing two groups after the model is fitted,
-  # so we use ashr for shrinkage here.
   MutYoung_vs_WTYoung = lfcShrink(
     dds,
     contrast = c("grp4","Mut_Young","WT_Young"),
     type = "ashr"
   ),
   
-  # This comes directly from the model → use apeglm
   MutOld_vs_WTOld = lfcShrink(
     dds,
     coef = "grp4_Mut_Old_vs_WT_Old",
     type = "apeglm"
   ),
   
-  # Direct model comparison → use apeglm
   WTYoung_vs_WTOld = lfcShrink(
     dds,
     coef = "grp4_WT_Young_vs_WT_Old",
     type = "apeglm"
   ),
   
-#we use ashr for shrinkage here
   MutYoung_vs_MutOld = lfcShrink(
     dds,
     contrast = c("grp4","Mut_Young","Mut_Old"),
@@ -133,13 +123,11 @@ res_list_shrunk <- list(
   )
 )
 
-
-## Instead of using only young samples,
-# the model estimates the effect using all data and adjusts it for young patients.
 # ------------------------------------------------------------
-# Annotation function
+# Annotation
 # ------------------------------------------------------------
 add_symbols <- function(res_obj) {
+  
   df <- as.data.frame(res_obj)
   
   df$ENSEMBL <- gsub("\\..*", "", rownames(df))
@@ -152,8 +140,7 @@ add_symbols <- function(res_obj) {
     multiVals = "first"
   )
   
-  df %>%
-    relocate(SYMBOL, ENSEMBL)
+  df %>% relocate(SYMBOL, ENSEMBL)
 }
 
 res_list_raw    <- lapply(res_list_raw, add_symbols)
@@ -179,20 +166,15 @@ for(name in names(res_list_raw)) {
             row.names = FALSE)
 }
 
-
 # ============================================================
-# plot_volcano_within_age_brca2.R
+# VOLCANO PLOTS (using SHRUNK results)
 # ============================================================
 
-# ------------------------------------------------------------
-# Paths
-# ------------------------------------------------------------
-results_dir <- "results/within_age_brca2"
-
-# ------------------------------------------------------------
-# Volcano function
-# ------------------------------------------------------------
 plot_volcano <- function(res_df, title, filename) {
+  
+  # NOTE:
+  # log2FoldChange here corresponds to SHRUNK values
+  # (from lfcShrink), even though the column name is unchanged
   
   df <- res_df %>%
     filter(!is.na(padj), !is.na(log2FoldChange)) %>%
@@ -205,7 +187,6 @@ plot_volcano <- function(res_df, title, filename) {
       )
     )
   
-  # Select top genes for labeling
   top_genes <- df %>%
     filter(direction != "NS", !is.na(SYMBOL), SYMBOL != "") %>%
     arrange(padj) %>%
@@ -254,7 +235,7 @@ plot_volcano <- function(res_df, title, filename) {
 }
 
 # ------------------------------------------------------------
-# Load SHRUNK results + plot
+# Plot all
 # ------------------------------------------------------------
 
 plot_volcano(
@@ -280,3 +261,5 @@ plot_volcano(
   "Mut Young vs Mut Old",
   "volcano_MutYoung_vs_MutOld.png"
 )
+
+cat("\nDONE\n")
