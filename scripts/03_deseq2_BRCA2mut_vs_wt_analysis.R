@@ -1,4 +1,5 @@
-rm(list = ls())
+
+#03_deseq2_BRCA2mut_vs_wt_analysis.R
 
 suppressPackageStartupMessages({
   library(DESeq2)
@@ -8,10 +9,11 @@ suppressPackageStartupMessages({
   library(edgeR)
 })
 
-# shorthand
+
 filter  <- dplyr::filter
 select  <- dplyr::select
 arrange <- dplyr::arrange
+
 
 # ============================================================
 # GOAL
@@ -224,6 +226,7 @@ p_volcano <- ggplot(volcano_df, aes(x = log2FC_shrunk, y = negLogP)) +
     color = ""
   )
 
+
 # ------------------------------------------------------------
 # LABEL TOP GENES
 # ------------------------------------------------------------
@@ -266,3 +269,73 @@ saveRDS(vst_mat, "data/vst_expression_ERpos_cleanWT.rds")
 
 plot(res_raw$log2FoldChange, res_shrunk$log2FoldChange)
 abline(0,1,col="red")
+
+
+
+# ============================================================
+# SAVE RESULTS (IMPORTANT)
+# ============================================================
+
+results_dir <- "results/brca2"
+dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
+
+# --- Save R objects ---
+saveRDS(res_raw_df,
+        file.path(results_dir, "BRCA2_DESeq_raw_results_cleanWT.rds"))
+
+saveRDS(res_shrunk_df,
+        file.path(results_dir, "BRCA2_DESeq_shrunk_results_cleanWT.rds"))
+
+saveRDS(full_results,
+        file.path(results_dir, "BRCA2_DESeq_full_results_cleanWT.rds"))
+
+saveRDS(sig_results,
+        file.path(results_dir, "BRCA2_DESeq_significant_cleanWT_strict.rds"))
+
+saveRDS(dds,
+        file.path(results_dir, "dds_BRCA2_model_cleanWT.rds"))
+
+
+# --- Save CSV (human-readable) ---
+write.csv(res_raw_df,
+          file.path(results_dir, "BRCA2_DESeq_raw_results_cleanWT.csv"),
+          row.names = FALSE)
+
+write.csv(res_shrunk_df,
+          file.path(results_dir, "BRCA2_DESeq_shrunk_results_cleanWT.csv"),
+          row.names = FALSE)
+
+write.csv(full_results,
+          file.path(results_dir, "BRCA2_DESeq_full_results_cleanWT.csv"),
+          row.names = FALSE)
+
+write.csv(sig_results,
+          file.path(results_dir, "BRCA2_DESeq_significant_cleanWT_strict.csv"),
+          row.names = FALSE)
+
+
+# --- Save volcano plot ---
+print(p_volcano)
+
+# save again
+results_dir <- "results/brca2"
+plot_dir <- file.path(results_dir, "plots")
+
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+ggsave(
+  file.path(plot_dir, "BRCA2_volcano_cleanWT.png"), 
+  p_volcano,
+  width = 6,
+  height = 5,
+  dpi = 150,
+  bg = "white"
+)
+
+list.files("results", recursive = TRUE)
+
+
+
+# NOTE:
+# log2FC_shrunk is used for visualization (volcano),
+# while padj comes from the original DESeq2 results
