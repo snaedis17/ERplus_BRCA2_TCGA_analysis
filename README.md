@@ -127,7 +127,6 @@ These results suggest that BRCA2-mutated tumors in young individuals are driven 
 
 To compare pathway-level changes, GSEA was performed using ranked gene lists from key contrasts.
 
-![GSEA Concordance](results/within_age_brca2/gsea_key_contrasts/gsea_concordance.png)
 
 **Key observation:**  
 Pathway-level analysis confirms the gene-level findings. While some pathways show concordant behavior in older patients, several pathways in young patients display divergent or opposite enrichment patterns.
@@ -135,6 +134,8 @@ Pathway-level analysis confirms the gene-level findings. While some pathways sho
 This further supports the idea that BRCA2-mutated tumors in young patients follow a distinct biological program.
 <img width="468" height="195" alt="image" src="https://github.com/user-attachments/assets/056727cf-f035-41bd-958e-1c006cb1c875" />
 
+
+![PROGENY Concordance](results/plots/progeny.png)
 
 
 
