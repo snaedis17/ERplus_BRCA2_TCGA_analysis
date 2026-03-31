@@ -1,6 +1,9 @@
 # ============================================================
-# deseq_brca2_within_age_groups
+# deseq_brca2_within_age_groups.R 
 # ============================================================
+
+rm(list = ls())
+
 suppressPackageStartupMessages({
   library(DESeq2)
   library(dplyr)
@@ -9,6 +12,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(ggrepel)
   library(dplyr)
+  library(edgeR)
 })
 
 filter  <- dplyr::filter
@@ -54,7 +58,7 @@ print(table(annot_patient$grp4))
 # ------------------------------------------------------------
 # Filtering
 # ------------------------------------------------------------
-library(edgeR)
+
 
 dge <- DGEList(counts = counts_one)
 
@@ -132,11 +136,9 @@ res_list_shrunk <- list(
 
 ## Instead of using only young samples,
 # the model estimates the effect using all data and adjusts it for young patients.
-
 # ------------------------------------------------------------
 # Annotation function
 # ------------------------------------------------------------
-
 add_symbols <- function(res_obj) {
   df <- as.data.frame(res_obj)
   
@@ -160,7 +162,6 @@ res_list_shrunk <- lapply(res_list_shrunk, add_symbols)
 # ------------------------------------------------------------
 # SAVE
 # ------------------------------------------------------------
-
 for(name in names(res_list_raw)) {
   
   saveRDS(res_list_raw[[name]],
@@ -179,11 +180,19 @@ for(name in names(res_list_raw)) {
 }
 
 
-# ------------------------------------------------------------
-# Volcano
-# ------------------------------------------------------------
+# ============================================================
+# plot_volcano_within_age_brca2.R
+# ============================================================
 
-plot_volcano <- function(res_df, title, filename, results_dir = "results") {
+# ------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------
+results_dir <- "results/within_age_brca2"
+
+# ------------------------------------------------------------
+# Volcano function
+# ------------------------------------------------------------
+plot_volcano <- function(res_df, title, filename) {
   
   df <- res_df %>%
     filter(!is.na(padj), !is.na(log2FoldChange)) %>%
@@ -196,12 +205,11 @@ plot_volcano <- function(res_df, title, filename, results_dir = "results") {
       )
     )
   
-  #Top genes 
+  # Select top genes for labeling
   top_genes <- df %>%
     filter(direction != "NS", !is.na(SYMBOL), SYMBOL != "") %>%
-    filter(abs(log2FoldChange) > 1.5) %>%
     arrange(padj) %>%
-    slice_head(n = 15)
+    slice_head(n = 20)
   
   p <- ggplot(df, aes(x = log2FoldChange, y = neglog10)) +
     
@@ -219,11 +227,8 @@ plot_volcano <- function(res_df, title, filename, results_dir = "results") {
     geom_text_repel(
       data = top_genes,
       aes(label = SYMBOL),
-      size = 4,
-      max.overlaps = Inf,
-      box.padding = 0.5,
-      point.padding = 0.3,
-      force = 2
+      size = 3,
+      max.overlaps = 20
     ) +
     
     coord_cartesian(xlim = c(-6, 6), ylim = c(0, 12)) +
@@ -232,7 +237,7 @@ plot_volcano <- function(res_df, title, filename, results_dir = "results") {
     
     labs(
       title = title,
-      x = "log2 fold change",
+      x = "log2 fold change (shrunk)",
       y = "-log10 adjusted p-value"
     )
   
@@ -241,39 +246,37 @@ plot_volcano <- function(res_df, title, filename, results_dir = "results") {
   ggsave(
     file.path(results_dir, filename),
     p,
-    width = 7,
-    height = 6,
+    width = 6,
+    height = 5,
     dpi = 300,
     bg = "white"
   )
 }
 
+# ------------------------------------------------------------
+# Load SHRUNK results + plot
+# ------------------------------------------------------------
 
 plot_volcano(
-  readRDS("results/within_age_brca2/res_MutYoung_vs_WTYoung_RAW.rds"),
+  readRDS(file.path(results_dir, "res_MutYoung_vs_WTYoung_SHRUNK.rds")),
   "Mut Young vs WT Young",
-  "volcano_MutYoung_vs_WTYoung.png",
-  "results/within_age_brca2"
+  "volcano_MutYoung_vs_WTYoung.png"
 )
 
 plot_volcano(
-  readRDS("results/within_age_brca2/res_MutOld_vs_WTOld_RAW.rds"),
+  readRDS(file.path(results_dir, "res_MutOld_vs_WTOld_SHRUNK.rds")),
   "Mut Old vs WT Old",
-  "volcano_MutOld_vs_WTOld.png",
-  "results/within_age_brca2"
+  "volcano_MutOld_vs_WTOld.png"
 )
 
 plot_volcano(
-  readRDS("results/within_age_brca2/res_WTYoung_vs_WTOld_RAW.rds"),
+  readRDS(file.path(results_dir, "res_WTYoung_vs_WTOld_SHRUNK.rds")),
   "WT Young vs WT Old",
-  "volcano_WTYoung_vs_WTOld.png",
-  "results/within_age_brca2"
+  "volcano_WTYoung_vs_WTOld.png"
 )
 
 plot_volcano(
-  readRDS("results/within_age_brca2/res_MutYoung_vs_MutOld_RAW.rds"),
+  readRDS(file.path(results_dir, "res_MutYoung_vs_MutOld_SHRUNK.rds")),
   "Mut Young vs Mut Old",
-  "volcano_MutYoung_vs_MutOld.png",
-  "results/within_age_brca2"
+  "volcano_MutYoung_vs_MutOld.png"
 )
-
