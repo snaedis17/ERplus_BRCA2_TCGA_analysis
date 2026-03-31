@@ -1,0 +1,279 @@
+# ============================================================
+# deseq_brca2_within_age_groups
+# ============================================================
+suppressPackageStartupMessages({
+  library(DESeq2)
+  library(dplyr)
+  library(AnnotationDbi)
+  library(EnsDb.Hsapiens.v86)
+  library(ggplot2)
+  library(ggrepel)
+  library(dplyr)
+})
+
+filter  <- dplyr::filter
+select  <- dplyr::select
+arrange <- dplyr::arrange
+mutate  <- dplyr::mutate
+
+# ------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------
+results_dir <- "results/within_age_brca2"
+dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
+
+# ------------------------------------------------------------
+# Load data
+# ------------------------------------------------------------
+counts_one    <- readRDS("data/counts_ERpos_clean_final.rds")
+annot_patient <- readRDS("data/annot_ERpos_clean_final.rds")
+
+stopifnot(identical(colnames(counts_one), annot_patient$patient12))
+
+# ------------------------------------------------------------
+# Metadata
+# ------------------------------------------------------------
+annot_patient <- annot_patient %>%
+  filter(!is.na(age_num)) %>%
+  mutate(
+    age_group = if_else(age_num <= 40, "Young", "Old"),
+    age_group = factor(age_group, levels = c("Old", "Young")),
+    BRCA2_Status = factor(BRCA2_Status, levels = c("WT", "Mut")),
+    grp4 = paste(BRCA2_Status, age_group, sep = "_"),
+    grp4 = factor(grp4, levels = c("WT_Old","WT_Young","Mut_Old","Mut_Young"))
+  )
+
+counts_one <- counts_one[, annot_patient$patient12, drop = FALSE]
+
+cat("\nGroup sizes:\n")
+print(table(annot_patient$grp4))
+
+#  WT_Old  WT_Young   Mut_Old Mut_Young 
+#663        41        12         5 
+
+# ------------------------------------------------------------
+# Filtering
+# ------------------------------------------------------------
+library(edgeR)
+
+dge <- DGEList(counts = counts_one)
+
+keep <- filterByExpr(
+  dge,
+  group = annot_patient$grp4
+)
+
+counts_one <- counts_one[keep, , drop = FALSE]
+
+cat("Genes kept:", nrow(counts_one), "\n")
+#Genes kept: 17863 
+# ------------------------------------------------------------
+# DESeq2
+# ------------------------------------------------------------
+dds <- DESeqDataSetFromMatrix(
+  countData = counts_one,
+  colData   = annot_patient,
+  design    = ~ grp4
+)
+
+dds <- DESeq(dds)
+saveRDS(dds, file.path(results_dir, "dds_grp4.rds"))
+
+cat("\nModel coefficients:\n")
+coef_names <- resultsNames(dds)
+print(coef_names)
+#"grp4_WT_Young_vs_WT_Old"  "grp4_Mut_Old_vs_WT_Old"   "grp4_Mut_Young_vs_WT_Old"
+# ------------------------------------------------------------
+# RAW RESULTS
+# ------------------------------------------------------------
+res_list_raw <- list(
+  MutYoung_vs_WTYoung = results(dds, contrast = c("grp4","Mut_Young","WT_Young")),
+  MutOld_vs_WTOld     = results(dds, contrast = c("grp4","Mut_Old","WT_Old")),
+  WTYoung_vs_WTOld    = results(dds, contrast = c("grp4","WT_Young","WT_Old")),
+  MutYoung_vs_MutOld  = results(dds, contrast = c("grp4","Mut_Young","Mut_Old"))
+)
+
+# ------------------------------------------------------------
+# SHRUNK RESULTS (ROBUST HANDLING)
+# ------------------------------------------------------------
+
+res_list_shrunk <- list(
+  
+  # This comparison is made by comparing two groups after the model is fitted,
+  # so we use ashr for shrinkage here.
+  MutYoung_vs_WTYoung = lfcShrink(
+    dds,
+    contrast = c("grp4","Mut_Young","WT_Young"),
+    type = "ashr"
+  ),
+  
+  # This comes directly from the model → use apeglm
+  MutOld_vs_WTOld = lfcShrink(
+    dds,
+    coef = "grp4_Mut_Old_vs_WT_Old",
+    type = "apeglm"
+  ),
+  
+  # Direct model comparison → use apeglm
+  WTYoung_vs_WTOld = lfcShrink(
+    dds,
+    coef = "grp4_WT_Young_vs_WT_Old",
+    type = "apeglm"
+  ),
+  
+#we use ashr for shrinkage here
+  MutYoung_vs_MutOld = lfcShrink(
+    dds,
+    contrast = c("grp4","Mut_Young","Mut_Old"),
+    type = "ashr"
+  )
+)
+
+
+## Instead of using only young samples,
+# the model estimates the effect using all data and adjusts it for young patients.
+
+# ------------------------------------------------------------
+# Annotation function
+# ------------------------------------------------------------
+
+add_symbols <- function(res_obj) {
+  df <- as.data.frame(res_obj)
+  
+  df$ENSEMBL <- gsub("\\..*", "", rownames(df))
+  
+  df$SYMBOL <- mapIds(
+    EnsDb.Hsapiens.v86,
+    keys = df$ENSEMBL,
+    keytype = "GENEID",
+    column = "SYMBOL",
+    multiVals = "first"
+  )
+  
+  df %>%
+    relocate(SYMBOL, ENSEMBL)
+}
+
+res_list_raw    <- lapply(res_list_raw, add_symbols)
+res_list_shrunk <- lapply(res_list_shrunk, add_symbols)
+
+# ------------------------------------------------------------
+# SAVE
+# ------------------------------------------------------------
+
+for(name in names(res_list_raw)) {
+  
+  saveRDS(res_list_raw[[name]],
+          file.path(results_dir, paste0("res_", name, "_RAW.rds")))
+  
+  saveRDS(res_list_shrunk[[name]],
+          file.path(results_dir, paste0("res_", name, "_SHRUNK.rds")))
+  
+  write.csv(res_list_raw[[name]],
+            file.path(results_dir, paste0("res_", name, "_RAW.csv")),
+            row.names = FALSE)
+  
+  write.csv(res_list_shrunk[[name]],
+            file.path(results_dir, paste0("res_", name, "_SHRUNK.csv")),
+            row.names = FALSE)
+}
+
+
+# ------------------------------------------------------------
+# Volcano
+# ------------------------------------------------------------
+
+plot_volcano <- function(res_df, title, filename, results_dir = "results") {
+  
+  df <- res_df %>%
+    filter(!is.na(padj), !is.na(log2FoldChange)) %>%
+    mutate(
+      neglog10 = -log10(padj),
+      direction = case_when(
+        padj < 0.05 & log2FoldChange > 1  ~ "Up",
+        padj < 0.05 & log2FoldChange < -1 ~ "Down",
+        TRUE ~ "NS"
+      )
+    )
+  
+  #Top genes 
+  top_genes <- df %>%
+    filter(direction != "NS", !is.na(SYMBOL), SYMBOL != "") %>%
+    filter(abs(log2FoldChange) > 1.5) %>%
+    arrange(padj) %>%
+    slice_head(n = 15)
+  
+  p <- ggplot(df, aes(x = log2FoldChange, y = neglog10)) +
+    
+    geom_point(aes(color = direction), alpha = 0.7, size = 2) +
+    
+    scale_color_manual(values = c(
+      "Up" = "#d73027",
+      "Down" = "#4575b4",
+      "NS" = "grey80"
+    )) +
+    
+    geom_vline(xintercept = c(-1, 1), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    
+    geom_text_repel(
+      data = top_genes,
+      aes(label = SYMBOL),
+      size = 4,
+      max.overlaps = Inf,
+      box.padding = 0.5,
+      point.padding = 0.3,
+      force = 2
+    ) +
+    
+    coord_cartesian(xlim = c(-6, 6), ylim = c(0, 12)) +
+    
+    theme_bw(base_size = 14) +
+    
+    labs(
+      title = title,
+      x = "log2 fold change",
+      y = "-log10 adjusted p-value"
+    )
+  
+  print(p)
+  
+  ggsave(
+    file.path(results_dir, filename),
+    p,
+    width = 7,
+    height = 6,
+    dpi = 300,
+    bg = "white"
+  )
+}
+
+
+plot_volcano(
+  readRDS("results/within_age_brca2/res_MutYoung_vs_WTYoung_RAW.rds"),
+  "Mut Young vs WT Young",
+  "volcano_MutYoung_vs_WTYoung.png",
+  "results/within_age_brca2"
+)
+
+plot_volcano(
+  readRDS("results/within_age_brca2/res_MutOld_vs_WTOld_RAW.rds"),
+  "Mut Old vs WT Old",
+  "volcano_MutOld_vs_WTOld.png",
+  "results/within_age_brca2"
+)
+
+plot_volcano(
+  readRDS("results/within_age_brca2/res_WTYoung_vs_WTOld_RAW.rds"),
+  "WT Young vs WT Old",
+  "volcano_WTYoung_vs_WTOld.png",
+  "results/within_age_brca2"
+)
+
+plot_volcano(
+  readRDS("results/within_age_brca2/res_MutYoung_vs_MutOld_RAW.rds"),
+  "Mut Young vs Mut Old",
+  "volcano_MutYoung_vs_MutOld.png",
+  "results/within_age_brca2"
+)
+
