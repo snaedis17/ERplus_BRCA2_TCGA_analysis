@@ -65,7 +65,7 @@ These findings align with a model where BRCA2-mutated ER+ tumors do not form a c
 
 Comparison of gene expression between young (≤40 years) and older ER+ wild-type tumors.
 
-![Volcano](results/within_age_brca2/volcano_WTYoung_vs_WTOld.png)
+![Volcano](results/plots/Volcano_youngvsold_wt.png)
 
 **Key observation:**  
 Age-associated transcriptional changes in wild-type tumors reflect coordinated biological processes rather than widespread global shifts. These include pathways related to proliferation, metabolism, and cellular stress responses, suggesting a structured aging-related transcriptional program in ER+ breast cancer.
