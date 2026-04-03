@@ -21,7 +21,7 @@ norm12 <- function(x) substr(toupper(gsub("\\s+", "", as.character(x))), 1, 12)
 norm16 <- function(x) substr(toupper(gsub("\\s+", "", as.character(x))), 1, 16)
 
 # ------------------------------------------------------------
-# Load data (from Script 00)
+# Load data (from Script 01)
 # ------------------------------------------------------------
 counts <- readRDS("data/counts_precollapse_TCGA.rds")
 annot  <- readRDS("data/annot_precollapse_TCGA.rds")
