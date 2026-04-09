@@ -1,8 +1,47 @@
 # ============================================================
  Build FINAL ER+ TCGA cohort
 # ============================================================
+#This script builds the final ER-positive TCGA breast cancer cohort used for all downstream analyses (DESeq2, GSEA, etc.).
 
-rm(list = ls())
+#It performs three main steps:
+#	1.	Cleans the dataset (removes unwanted samples)
+#2.	Defines BRCA2 mutation status (Mut vs WT)
+#3.	Constructs a patient-level expression dataset
+
+#### Input data
+
+##counts_precollapse_TCGA.rds
+
+#Gene expression matrix (RNA-seq counts)
+	#•	Rows = genes
+	#•	Columns = aliquots (individual tumor samples)
+	#•	Raw, unfiltered dataset
+
+#Precollapse means:
+	#•	multiple samples per patient may exist
+ #•	no filtering has been applied yet
+	#•	includes all tumor types before cleaning
+
+##Sample annotation (metadata)
+
+#Contains clinical and sample-level information:
+	#•	aliquot → sample ID (matches columns in counts matrix)
+	#•	patient12 → TCGA patient ID (first 12 characters of barcode)
+	#•	ER → estrogen receptor status (ER+ / ER−)
+	#•	age_num → age at diagnosis
+
+#maf_TCGA_BRCA.rds = Somatic mutation data (MAF file)
+
+#Contains mutation information per tumor sample:
+	#•	Hugo_Symbol → gene name (e.g. BRCA1, BRCA2)
+	#•	Variant_Classification → mutation type
+	#•	Tumor_Sample_Barcode → sample ID
+
+##Nik_germline
+##maxwell_germline
+#These contain germline mutation annotations from external sources.
+
+# Used to identify: pathogenic BRCA1 carriers (to exclude) and	pathogenic BRCA2 carriers (to define the “Mut” group)
 
 suppressPackageStartupMessages({
   library(dplyr)
