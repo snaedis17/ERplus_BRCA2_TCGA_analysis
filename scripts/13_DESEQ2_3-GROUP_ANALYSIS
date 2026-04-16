@@ -1,5 +1,5 @@
 # ============================================================
-# 13_DESEQ2_3-GROUP_ANALYSIS
+13_DESEQ2_3-GROUP_ANALYSIS
 # ============================================================
 #
 # PURPOSE:
@@ -24,10 +24,11 @@
 #
 # WT_Old is used as a stable baseline reference group.
 #
-# ============================================================
 
 
-RUN_DESEQ <- FALSE   # TRUE = run full DESeq | FALSE = load existing
+rm(list = ls())
+
+RUN_DESEQ <- TRUE   # TRUE first run, then FALSE
 
 suppressPackageStartupMessages({
   library(DESeq2)
@@ -52,7 +53,7 @@ results_dir <- "results/brca2_threegroup"
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ============================================================
-# PART 1 — BUILD DESEQ OBJECT (RUN ONCE)
+# PART 1 — BUILD DESEQ OBJECT
 # ============================================================
 if (RUN_DESEQ) {
   
@@ -82,11 +83,38 @@ if (RUN_DESEQ) {
   
   counts <- counts[, annot$patient12]
   
+  # ------------------------------------------------------------
+  # KEEP ONLY PROTEIN-CODING GENES (SAFE)
+  # ------------------------------------------------------------
+  gene_ids <- gsub("\\..*", "", rownames(counts))
+  
+  gene_annot <- AnnotationDbi::select(
+    EnsDb.Hsapiens.v86,
+    keys = gene_ids,
+    keytype = "GENEID",
+    columns = c("GENEBIOTYPE")
+  )
+  
+  gene_annot <- gene_annot[match(gene_ids, gene_annot$GENEID), ]
+  
+  keep_pc <- !is.na(gene_annot$GENEBIOTYPE) &
+    gene_annot$GENEBIOTYPE == "protein_coding"
+  
+  counts <- counts[keep_pc, ]
+  
+  cat("Protein-coding genes kept:", nrow(counts), "\n")
+  
+  # ------------------------------------------------------------
+  # LOW EXPRESSION FILTER
+  # ------------------------------------------------------------
   keep <- rowSums(counts >= 10) >= 5
   counts <- counts[keep, ]
   
-  cat("Genes kept:", nrow(counts), "\n")
+  cat("Genes kept after filtering:", nrow(counts), "\n")
   
+  # ------------------------------------------------------------
+  # DESEQ2
+  # ------------------------------------------------------------
   dds <- DESeqDataSetFromMatrix(
     countData = counts,
     colData   = annot,
@@ -101,16 +129,14 @@ if (RUN_DESEQ) {
 }
 
 # ============================================================
-# PART 2 — LOAD DESEQ OBJECT
+# PART 2 — LOAD
 # ============================================================
-
 dds <- readRDS(file.path(results_dir, "dds_grp3.rds"))
-cat("\nLoaded existing DESeq object\n")
+cat("\nLoaded DESeq object\n")
 
 # ============================================================
 # CONTRASTS
 # ============================================================
-
 res_list_raw <- list(
   WTYoung_vs_WTOld = results(dds, contrast = c("grp3","WT_Young","WT_Old")),
   MutAll_vs_WTOld  = results(dds, contrast = c("grp3","Mut_All","WT_Old")),
@@ -120,7 +146,6 @@ res_list_raw <- list(
 # ============================================================
 # SHRINKAGE
 # ============================================================
-
 res_list_shrunk <- list(
   WTYoung_vs_WTOld = lfcShrink(dds, coef = "grp3_WT_Young_vs_WT_Old", type = "apeglm"),
   MutAll_vs_WTOld  = lfcShrink(dds, coef = "grp3_Mut_All_vs_WT_Old", type = "apeglm"),
@@ -130,7 +155,6 @@ res_list_shrunk <- list(
 # ============================================================
 # ANNOTATION
 # ============================================================
-
 add_symbols <- function(res_obj) {
   df <- as.data.frame(res_obj)
   df$ENSEMBL <- gsub("\\..*", "", rownames(df))
@@ -152,7 +176,6 @@ res_list_shrunk <- lapply(res_list_shrunk, add_symbols)
 # ============================================================
 # SAVE RESULTS
 # ============================================================
-
 for(name in names(res_list_raw)) {
   saveRDS(res_list_raw[[name]],
           file.path(results_dir, paste0("res_", name, "_RAW.rds")))
@@ -162,12 +185,13 @@ for(name in names(res_list_raw)) {
 }
 
 # ============================================================
-# VOLCANO FUNCTION
+# VOLCANO
 # ============================================================
-
 plot_volcano <- function(res_df, title, filename) {
   
-  df <- res_df %>%
+  df <- as.data.frame(res_df)  
+  
+  df <- df %>%
     filter(!is.na(padj), !is.na(log2FoldChange)) %>%
     mutate(
       neglog10 = -log10(padj),
@@ -191,74 +215,99 @@ plot_volcano <- function(res_df, title, filename) {
   ggsave(file.path(results_dir, filename), p, width=6, height=5, dpi=300)
 }
 
-# ============================================================
-# PLOTS
-# ============================================================
+# ------------------------------------------------------------
+# WT AGE EFFECT
+# ------------------------------------------------------------
+plot_volcano(res_list_shrunk$WTYoung_vs_WTOld, 
+             "WT Young vs WT Old (shrunk)", 
+             "volcano_WT_age_SHRUNK.png")
 
-plot_volcano(res_list_shrunk$WTYoung_vs_WTOld, "WT Young vs WT Old (shrunk)", "volcano_WT_SHRUNK.png")
-plot_volcano(res_list_shrunk$MutAll_vs_WTOld, "Mut vs WT Old (shrunk)", "volcano_MutOld_SHRUNK.png")
-plot_volcano(res_list_shrunk$MutAll_vs_WTYoung, "Mut vs WT Young (shrunk)", "volcano_MutYoung_SHRUNK.png")
+plot_volcano(res_list_raw$WTYoung_vs_WTOld, 
+             "WT Young vs WT Old (RAW)", 
+             "volcano_WT_age_RAW.png")
 
-plot_volcano(res_list_raw$WTYoung_vs_WTOld, "WT Young vs WT Old (RAW)", "volcano_WT_RAW.png")
-plot_volcano(res_list_raw$MutAll_vs_WTOld, "Mut vs WT Old (RAW)", "volcano_MutOld_RAW.png")
-plot_volcano(res_list_raw$MutAll_vs_WTYoung, "Mut vs WT Young (RAW)", "volcano_MutYoung_RAW.png")
+# ------------------------------------------------------------
+# BRCA2 EFFECT (vs OLD baseline)
+# ------------------------------------------------------------
+plot_volcano(res_list_shrunk$MutAll_vs_WTOld, 
+             "Mut vs WT Old (shrunk)", 
+             "volcano_Mut_vs_WTOld_SHRUNK.png")
+
+plot_volcano(res_list_raw$MutAll_vs_WTOld, 
+             "Mut vs WT Old (RAW)", 
+             "volcano_Mut_vs_WTOld_RAW.png")
+
+# ------------------------------------------------------------
+# BRCA2 vs YOUNG (KEY biological question)
+# ------------------------------------------------------------
+plot_volcano(res_list_shrunk$MutAll_vs_WTYoung, 
+             "Mut vs WT Young (shrunk)", 
+             "volcano_Mut_vs_WTYoung_SHRUNK.png")
+
+plot_volcano(res_list_raw$MutAll_vs_WTYoung, 
+             "Mut vs WT Young (RAW)", 
+             "volcano_Mut_vs_WTYoung_RAW.png")
 
 # ============================================================
-# SAVE FULL TABLES
+# DEG EXTRACTION
 # ============================================================
-
-save_full_deg <- function(res_df, name) {
-  
+get_deg <- function(res_df) {
   df <- as.data.frame(res_df)
-  has_stat <- "stat" %in% colnames(df)
   
-  df <- df %>%
-    filter(!is.na(padj), !is.na(log2FoldChange)) %>%
-    mutate(direction = case_when(
-      padj < 0.05 & log2FoldChange > 1  ~ "Up",
-      padj < 0.05 & log2FoldChange < -1 ~ "Down",
-      TRUE ~ "NS"
-    ))
-  
-  base_cols <- c("SYMBOL","ENSEMBL","baseMean","log2FoldChange","lfcSE","pvalue","padj","direction")
-  
-  if (has_stat) {
-    df <- df %>% select(all_of(c(base_cols, "stat")))
-  } else {
-    df <- df %>% select(all_of(base_cols))
-  }
-  
-  df <- df %>% arrange(padj)
-  
-  write.csv(df, file.path(results_dir, paste0(name, "_FULL_TABLE.csv")), row.names=FALSE)
+  df %>%
+    filter(
+      !is.na(padj),
+      padj < 0.05,
+      abs(log2FoldChange) >= 1,
+      !is.na(SYMBOL),
+      SYMBOL != ""
+    ) %>%
+    pull(SYMBOL) %>%
+    unique()
 }
 
-save_full_deg(res_list_raw$WTYoung_vs_WTOld, "WT_age_RAW")
-save_full_deg(res_list_shrunk$WTYoung_vs_WTOld, "WT_age_SHRUNK")
-save_full_deg(res_list_raw$MutAll_vs_WTOld, "Mut_vs_WT_Old_RAW")
-save_full_deg(res_list_shrunk$MutAll_vs_WTOld, "Mut_vs_WT_Old_SHRUNK")
-save_full_deg(res_list_raw$MutAll_vs_WTYoung, "Mut_vs_WT_Young_RAW")
-save_full_deg(res_list_shrunk$MutAll_vs_WTYoung, "Mut_vs_WT_Young_SHRUNK")
+deg_WT  <- get_deg(res_list_raw$WTYoung_vs_WTOld)
+deg_MO  <- get_deg(res_list_raw$MutAll_vs_WTOld)
+deg_MY  <- get_deg(res_list_raw$MutAll_vs_WTYoung)
 
+# WT age 
+#Up: 74 
+#Down: 598 
+
+# Mut vs WT Old 
+#Up: 38 
+#Down: 365 
+
+# Mut vs WT Young 
+#Up: 19 
+#Down: 30 
 # ============================================================
 # VENN
 # ============================================================
-
-get_deg <- function(df) {
-  df %>%
-    filter(!is.na(padj), padj < 0.05, abs(log2FoldChange) >= 1, !is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>% unique()
-}
-deg_WT  <- get_deg(res_list_raw$WTYoung_vs_WTOld)
-deg_MO   <- get_deg(res_list_raw$MutAll_vs_WTOld)
-deg_MY <- get_deg(res_list_raw$MutAll_vs_WTYoung)
-
-
 venn_list <- list(WT_age=deg_WT, Mut_vs_WTOld=deg_MO, Mut_vs_WTYoung=deg_MY)
 
 p_venn <- ggVennDiagram(venn_list) + theme_void()
 print(p_venn)
 
-ggsave(file.path(results_dir,"venn_DEGs.png"), p_venn, width=6, height=5)
+ggsave(file.path(results_dir,"venn.png"), p_venn)
 
-cat("\nDONE – CLEAN PIPELINE\n")
+# ============================================================
+# COUNTS
+# ============================================================
+count_deg <- function(res_df, name) {
+  
+  df <- as.data.frame(res_df)
+  
+  up <- df %>% filter(!is.na(padj), padj < 0.05, log2FoldChange > 1)
+  down <- df %>% filter(!is.na(padj), padj < 0.05, log2FoldChange < -1)
+  
+  cat("\n", name, "\n")
+  cat("Up:", nrow(up), "\n")
+  cat("Down:", nrow(down), "\n")
+}
+
+count_deg(res_list_raw$WTYoung_vs_WTOld, "WT age")
+count_deg(res_list_raw$MutAll_vs_WTOld, "Mut vs WT Old")
+count_deg(res_list_raw$MutAll_vs_WTYoung, "Mut vs WT Young")
+
+cat("\nDONE\n")
