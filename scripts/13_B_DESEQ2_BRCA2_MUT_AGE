@@ -1,0 +1,302 @@
+# ============================================================
+# 13_B_DESEQ2_BRCA2_MUT_AGE
+# Young vs Old within BRCA2-mutated ER+ tumors
+# ============================================================
+
+RUN_DESEQ <- TRUE   #  TRUE first run, FALSE later
+
+suppressPackageStartupMessages({
+  library(DESeq2)
+  library(dplyr)
+  library(edgeR)
+  library(AnnotationDbi)
+  library(EnsDb.Hsapiens.v86)
+  library(ggplot2)
+  library(ggrepel)
+})
+
+filter  <- dplyr::filter
+select  <- dplyr::select
+mutate  <- dplyr::mutate
+arrange <- dplyr::arrange
+
+# ------------------------------------------------------------
+# PATHS
+# ------------------------------------------------------------
+results_dir <- "results/brca2_mut_age"
+dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================
+# PART 1 — BUILD DESEQ OBJECT
+# ============================================================
+if (RUN_DESEQ) {
+  
+  counts <- readRDS("data/counts_ERpos_clean_final.rds")
+  annot  <- readRDS("data/annot_ERpos_clean_final.rds")
+  
+  # --------------------------
+  # FILTER TO BRCA2 MUT ONLY
+  # --------------------------
+  annot <- annot %>%
+    filter(BRCA2_Status == "Mut") %>%
+    mutate(
+      age = case_when(
+        !is.na(age_num) ~ age_num,
+        !is.na(age_at_index) ~ age_at_index,
+        TRUE ~ NA_real_
+      ),
+      age = if_else(age > 90, 90, age),
+      
+      age_group = if_else(age <= 40, "Young", "Old"),
+      age_group = factor(age_group, levels = c("Old","Young"))
+    ) %>%
+    filter(!is.na(age_group))
+  
+  counts <- counts[, annot$patient12]
+  
+  cat("\nGroup sizes (BRCA2 MUT ONLY):\n")
+  print(table(annot$age_group))
+  # Expect: Old ~12, Young ~5
+  
+  # ------------------------------------------------------------
+  # KEEP ONLY PROTEIN-CODING GENES (SAFE)
+  # ------------------------------------------------------------
+  gene_ids <- gsub("\\..*", "", rownames(counts))
+  
+  gene_annot <- AnnotationDbi::select(
+    EnsDb.Hsapiens.v86,
+    keys = gene_ids,
+    keytype = "GENEID",
+    columns = c("GENEBIOTYPE")
+  )
+  
+  # tryggir rétta röðun
+  gene_annot <- gene_annot[match(gene_ids, gene_annot$GENEID), ]
+  
+  keep_pc <- !is.na(gene_annot$GENEBIOTYPE) &
+    gene_annot$GENEBIOTYPE == "protein_coding"
+  
+  counts <- counts[keep_pc, ]
+  
+  cat("Protein-coding genes kept:", nrow(counts), "\n")
+  
+  # --------------------------
+  # FILTER LOW EXPRESSION
+  # --------------------------
+  keep <- rowSums(counts >= 10) >= 5
+  counts <- counts[keep, ]
+  
+  cat("Genes kept:", nrow(counts), "\n")
+  
+  # --------------------------
+  # DESEQ2
+  # --------------------------
+  dds <- DESeqDataSetFromMatrix(
+    countData = counts,
+    colData   = annot,
+    design    = ~ age_group
+  )
+  
+  dds <- DESeq(dds)
+  
+  saveRDS(dds, file.path(results_dir, "dds_brca2_mut_age.rds"))
+  
+  cat("\nDESeq2 (BRCA2-mut only) complete\n")
+}
+
+# ============================================================
+# PART 2 — LOAD DESEQ OBJECT
+# ============================================================
+dds <- readRDS(file.path(results_dir, "dds_brca2_mut_age.rds"))
+
+cat("\nLoaded DESeq object (BRCA2 mut only)\n")
+
+# ============================================================
+# CONTRAST
+# ============================================================
+res_raw <- results(dds, contrast = c("age_group","Young","Old"))
+
+# ============================================================
+# SHRINKAGE
+# ============================================================
+res_shrunk <- lfcShrink(
+  dds,
+  coef = "age_group_Young_vs_Old",
+  type = "apeglm"
+)
+
+# ============================================================
+# ANNOTATION
+# ============================================================
+add_symbols <- function(res_obj) {
+  
+  df <- as.data.frame(res_obj)
+  
+  df$ENSEMBL <- gsub("\\..*", "", rownames(df))
+  
+  df$SYMBOL <- mapIds(
+    EnsDb.Hsapiens.v86,
+    keys = df$ENSEMBL,
+    keytype = "GENEID",
+    column = "SYMBOL",
+    multiVals = "first"
+  )
+  
+  df %>% relocate(SYMBOL, ENSEMBL)
+}
+
+res_raw    <- add_symbols(res_raw)
+res_shrunk <- add_symbols(res_shrunk)
+
+
+
+# ============================================================
+# DEG COUNTS (USE RAW FOR TRUTH)
+# ============================================================
+
+deg_up <- res_raw %>%
+  filter(
+    !is.na(padj),
+    padj < 0.05,
+    log2FoldChange > 1,
+    !is.na(SYMBOL),
+    SYMBOL != ""
+  )
+
+deg_down <- res_raw %>%
+  filter(
+    !is.na(padj),
+    padj < 0.05,
+    log2FoldChange < -1,
+    !is.na(SYMBOL),
+    SYMBOL != ""
+  )
+
+cat("\nDEG summary (RAW):\n")
+cat("Up in Young:", nrow(deg_up), "\n")
+cat("Down in Young:", nrow(deg_down), "\n")
+
+
+#DEG summary (RAW):
+#Up in Young: 46 
+#Down in Young: 16 
+# ============================================================
+# SAVE
+# ============================================================
+saveRDS(res_raw,    file.path(results_dir, "res_BRCA2Mut_Young_vs_Old_RAW.rds"))
+saveRDS(res_shrunk, file.path(results_dir, "res_BRCA2Mut_Young_vs_Old_SHRUNK.rds"))
+
+# ============================================================
+# VOLCANO FUNCTION
+# ============================================================
+plot_volcano <- function(res_df, title, filename) {
+  
+  df <- as.data.frame(res_df)  
+  
+  df <- df %>%
+    filter(!is.na(padj), !is.na(log2FoldChange)) %>%
+    mutate(
+      neglog10 = -log10(padj),
+      direction = case_when(
+        padj < 0.05 & log2FoldChange > 1  ~ "Up",
+        padj < 0.05 & log2FoldChange < -1 ~ "Down",
+        TRUE ~ "NS"
+      )
+    )
+  
+  p <- ggplot(df, aes(log2FoldChange, neglog10)) +
+    geom_point(aes(color = direction), alpha = 0.7) +
+    
+    scale_color_manual(values = c(
+      "Up" = "#d73027",
+      "Down" = "#4575b4",
+      "NS" = "grey80"
+    )) +
+    
+    geom_vline(xintercept = c(-1, 1), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    
+    theme_bw(base_size = 14) +
+    
+    labs(
+      title = title,
+      x = "log2 fold change",
+      y = "-log10 adjusted p-value"
+    )
+  
+  print(p)
+  
+  ggsave(file.path(results_dir, filename),
+         p, width = 6, height = 5, dpi = 300)
+}
+
+save_full_deg <- function(res_df, name) {
+  
+  df <- as.data.frame(res_df)
+  
+  df <- df %>%
+    filter(!is.na(padj), !is.na(log2FoldChange)) %>%
+    mutate(
+      direction = case_when(
+        padj < 0.05 & log2FoldChange > 1  ~ "Up",
+        padj < 0.05 & log2FoldChange < -1 ~ "Down",
+        TRUE ~ "NS"
+      )
+    ) %>%
+    arrange(padj)
+  
+  write.csv(
+    df,
+    file.path(results_dir, paste0(name, ".csv")),
+    row.names = FALSE
+  )
+}
+# ============================================================
+# PLOT SHRUNK
+# ============================================================
+plot_volcano(
+  res_shrunk,
+  "BRCA2 Mut: Young vs Old (shrunk)",
+  "volcano_BRCA2Mut_YvsO_SHRUNK.png"
+)
+
+# ============================================================
+# PLOT RAW
+# ============================================================
+plot_volcano(
+  res_raw,
+  "BRCA2 Mut: Young vs Old (RAW)",
+  "volcano_BRCA2Mut_YvsO_RAW.png"
+)
+
+
+
+df_counts <- data.frame(
+  Direction = c("Up in Young", "Down in Young"),
+  Count = c(nrow(deg_up), nrow(deg_down))
+)
+
+p_counts <- ggplot(df_counts, aes(Direction, Count, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  theme_bw(base_size = 14) +
+  ggtitle("BRCA2-mut: Young vs Old DEG direction")
+
+print(p_counts)
+
+ggsave(
+  file.path(results_dir, "DEG_direction_barplot.png"),
+  p_counts,
+  width = 5,
+  height = 4,
+  dpi = 300
+)
+
+
+save_full_deg(res_raw, "BRCA2Mut_Young_vs_Old_RAW")
+save_full_deg(res_shrunk, "BRCA2Mut_Young_vs_Old_SHRUNK")
+
+
+
+
+
+
